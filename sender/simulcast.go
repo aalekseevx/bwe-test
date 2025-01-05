@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/transport/v3/xtime"
+
 	"github.com/pion/logging"
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/ivfreader"
@@ -38,6 +40,7 @@ type SimulcastFilesSource struct {
 	done                chan struct{}
 	wg                  sync.WaitGroup
 	log                 logging.LeveledLogger
+	timeManager         xtime.TimeManager
 }
 
 func (s *SimulcastFilesSource) Close() error {
@@ -47,7 +50,7 @@ func (s *SimulcastFilesSource) Close() error {
 }
 
 // NewSimulcastFilesSource returns a new SimulcastFilesSource
-func NewSimulcastFilesSource() *SimulcastFilesSource {
+func NewSimulcastFilesSource(tm xtime.TimeManager) *SimulcastFilesSource {
 	return &SimulcastFilesSource{
 		qualityLevels: []struct {
 			fileName string
@@ -62,9 +65,10 @@ func NewSimulcastFilesSource() *SimulcastFilesSource {
 		WriteSample: func(sample media.Sample) error {
 			panic("write on uninitialized SimulcastFileSource.WriteSample")
 		},
-		done: make(chan struct{}),
-		wg:   sync.WaitGroup{},
-		log:  logging.NewDefaultLoggerFactory().NewLogger("simulcast_source"),
+		done:        make(chan struct{}),
+		wg:          sync.WaitGroup{},
+		log:         logging.NewDefaultLoggerFactory().NewLogger("simulcast_source"),
+		timeManager: tm,
 	}
 }
 
@@ -102,7 +106,7 @@ func (s *SimulcastFilesSource) Start(ctx context.Context) error {
 	// It is important to use a time.Ticker instead of time.Sleep because
 	// * avoids accumulating skew, just calling time.Sleep didn't compensate for the time spent parsing the data
 	// * works around latency issues with Sleep (see https://github.com/golang/go/issues/44343)
-	ticker := time.NewTicker(time.Millisecond * time.Duration((float32(header.TimebaseNumerator)/float32(header.TimebaseDenominator))*1000))
+	ticker := s.timeManager.NewTicker(time.Millisecond * time.Duration((float32(header.TimebaseNumerator)/float32(header.TimebaseDenominator))*1000))
 	var frame []byte
 	frameHeader := &ivfreader.IVFFrameHeader{}
 	currentTimestamp := uint64(0)
@@ -148,7 +152,7 @@ func (s *SimulcastFilesSource) Start(ctx context.Context) error {
 		select {
 		case rate := <-s.updateTargetBitrate:
 			targetBitrate = rate
-		case <-ticker.C:
+		case now := <-ticker.C():
 			switch {
 			// If current quality level is below target bitrate drop to level below
 			case s.currentQualityLevel != 0 && targetBitrate < s.qualityLevels[s.currentQualityLevel].bitrate:
@@ -187,6 +191,7 @@ func (s *SimulcastFilesSource) Start(ctx context.Context) error {
 			default:
 				return err
 			}
+			now.Done()
 		case <-ctx.Done():
 			return nil
 		}

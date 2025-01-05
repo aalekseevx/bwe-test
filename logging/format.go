@@ -2,11 +2,10 @@ package logging
 
 import (
 	"fmt"
-	"time"
-
 	"github.com/pion/interceptor"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+	"github.com/pion/transport/v3/xtime"
 )
 
 const (
@@ -48,7 +47,8 @@ func (u *unwrapper) unwrap(i uint16) int64 {
 }
 
 type RTPFormatter struct {
-	seqnr unwrapper
+	TimeManager xtime.TimeManager
+	seqnr       unwrapper
 }
 
 func (f *RTPFormatter) RTPFormat(pkt *rtp.Packet, _ interceptor.Attributes) string {
@@ -63,7 +63,7 @@ func (f *RTPFormatter) RTPFormat(pkt *rtp.Packet, _ interceptor.Attributes) stri
 		twccNr = twcc.TransportSequence
 	}
 	return fmt.Sprintf("%v, %v, %v, %v, %v, %v, %v, %v, %v\n",
-		time.Now().UnixMilli(),
+		f.TimeManager.Now().UnixMilli(),
 		pkt.PayloadType,
 		pkt.SSRC,
 		pkt.SequenceNumber,
@@ -75,8 +75,12 @@ func (f *RTPFormatter) RTPFormat(pkt *rtp.Packet, _ interceptor.Attributes) stri
 	)
 }
 
-func RTCPFormat(pkts []rtcp.Packet, _ interceptor.Attributes) string {
-	now := time.Now().UnixMilli()
+type RTCPFormatter struct {
+	TimeManager xtime.TimeManager
+}
+
+func (f *RTCPFormatter) RTCPFormat(pkts []rtcp.Packet, _ interceptor.Attributes) string {
+	now := f.TimeManager.Now().UnixMilli()
 	size := 0
 	for _, pkt := range pkts {
 		switch feedback := pkt.(type) {

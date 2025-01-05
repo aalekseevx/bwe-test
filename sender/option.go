@@ -1,6 +1,7 @@
 package sender
 
 import (
+	"github.com/pion/transport/v3/xtime"
 	"io"
 	"time"
 
@@ -14,9 +15,11 @@ import (
 
 type Option func(*Sender) error
 
-func PacketLogWriter(rtpWriter, rtcpWriter io.Writer) Option {
+func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.TimeManager) Option {
 	return func(s *Sender) error {
-		formatter := logging.RTPFormatter{}
+		formatter := logging.RTPFormatter{
+			TimeManager: tm,
+		}
 		rtpLogger, err := packetdump.NewSenderInterceptor(
 			packetdump.RTPFormatter(formatter.RTPFormat),
 			packetdump.RTPWriter(rtpWriter),
@@ -24,8 +27,11 @@ func PacketLogWriter(rtpWriter, rtcpWriter io.Writer) Option {
 		if err != nil {
 			return err
 		}
+		rtcpFormatter := logging.RTCPFormatter{
+			TimeManager: tm,
+		}
 		rtcpLogger, err := packetdump.NewReceiverInterceptor(
-			packetdump.RTCPFormatter(logging.RTCPFormat),
+			packetdump.RTCPFormatter(rtcpFormatter.RTCPFormat),
 			packetdump.RTCPWriter(rtcpWriter),
 		)
 		if err != nil {
@@ -83,6 +89,13 @@ func SetVnet(v *vnet.Net, publicIPs []string) Option {
 func SetMediaSource(source MediaSource) Option {
 	return func(s *Sender) error {
 		s.source = source
+		return nil
+	}
+}
+
+func SetTimeManager(manager xtime.TimeManager) Option {
+	return func(s *Sender) error {
+		s.timeManager = manager
 		return nil
 	}
 }

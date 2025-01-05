@@ -1,6 +1,7 @@
 package syncodec
 
 import (
+	"github.com/pion/transport/v3/xtime"
 	"math"
 	"math/rand"
 	"sync"
@@ -103,6 +104,8 @@ type StatisticalCodec struct {
 	frameDurationNoiser noiser
 
 	done chan struct{}
+
+	timeManager xtime.TimeManager
 }
 
 type StatisticalCodecOption func(*StatisticalCodec) error
@@ -131,6 +134,13 @@ func WithScaleB(scale float64) StatisticalCodecOption {
 func WithScaleT(scale float64) StatisticalCodecOption {
 	return func(sc *StatisticalCodec) error {
 		sc.scaleT = scale
+		return nil
+	}
+}
+
+func WithTimeManager(tm xtime.TimeManager) StatisticalCodecOption {
+	return func(sc *StatisticalCodec) error {
+		sc.timeManager = tm
 		return nil
 	}
 }
@@ -170,6 +180,7 @@ func NewStatisticalEncoder(w FrameWriter, opts ...StatisticalCodecOption) (*Stat
 		frameSizeNoiser:         nil,
 		frameDurationNoiser:     nil,
 		done:                    make(chan struct{}),
+		timeManager:             xtime.StdTimeManager{},
 	}
 
 	for _, opt := range opts {
@@ -243,22 +254,22 @@ func (c *StatisticalCodec) nextFrame() Frame {
 
 // Start starts the StatisticalCodec
 func (c *StatisticalCodec) Start() {
-	timer := time.NewTimer(c.t0)
+	timer := c.timeManager.NewTimer(c.t0, true)
 	for {
 		select {
-		case <-timer.C:
+		case now := <-timer.C():
 			nextFrame := c.nextFrame()
 			timer.Reset(nextFrame.Duration)
 			c.writer.WriteFrame(nextFrame)
-
+			now.Done()
 		case rate := <-c.targetBitrateChan:
-			if time.Since(c.lastTargetBitrateUpdate) < c.tau {
+			if c.timeManager.Since(c.lastTargetBitrateUpdate) < c.tau {
 				continue
 			}
 			c.targetBitrateLock.Lock()
 			c.targetBitrateBps = rate
 			c.targetBitrateLock.Unlock()
-			c.lastTargetBitrateUpdate = time.Now()
+			c.lastTargetBitrateUpdate = c.timeManager.Now()
 			c.remainingBurstFrames = c.burstFrameCount
 
 		case <-c.done:

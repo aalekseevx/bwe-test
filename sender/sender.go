@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pion/transport/v3/xtime"
+
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/cc"
 	"github.com/pion/logging"
@@ -38,7 +40,8 @@ type Sender struct {
 
 	ccLogWriter io.Writer
 
-	log logging.LeveledLogger
+	log         logging.LeveledLogger
+	timeManager xtime.TimeManager
 }
 
 func NewSender(source MediaSource, opts ...Option) (*Sender, error) {
@@ -53,6 +56,7 @@ func NewSender(source MediaSource, opts ...Option) (*Sender, error) {
 		registry:       &interceptor.Registry{},
 		ccLogWriter:    io.Discard,
 		log:            logging.NewDefaultLoggerFactory().NewLogger("sender"),
+		timeManager:    xtime.StdTimeManager{},
 	}
 	if err := sender.mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -147,9 +151,9 @@ func (s *Sender) AcceptAnswer(answer *webrtc.SessionDescription) error {
 }
 
 func (s *Sender) Start(ctx context.Context) error {
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := s.timeManager.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	lastLog := time.Now()
+	lastLog := s.timeManager.Now()
 	lastBitrate := initialBitrate
 
 	s.source.SetWriter(s.videoTrack.WriteSample)
@@ -165,17 +169,18 @@ func (s *Sender) Start(ctx context.Context) error {
 		}
 		for {
 			select {
-			case now := <-ticker.C:
+			case now := <-ticker.C():
 				targetBitrate := estimator.GetTargetBitrate()
-				if now.Sub(lastLog) >= time.Second {
+				if now.Time().Sub(lastLog) >= time.Second {
 					s.log.Infof("targetBitrate = %v\n", targetBitrate)
-					lastLog = now
+					lastLog = now.Time()
 				}
 				if lastBitrate != targetBitrate {
 					s.source.SetTargetBitrate(targetBitrate)
 					lastBitrate = targetBitrate
 				}
-				fmt.Fprintf(s.ccLogWriter, "%v, %v\n", now.UnixMilli(), targetBitrate)
+				fmt.Fprintf(s.ccLogWriter, "%v, %v\n", now.Time().UnixMilli(), targetBitrate)
+				now.Done()
 			case <-ctx.Done():
 				return nil
 			}

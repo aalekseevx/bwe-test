@@ -3,6 +3,7 @@ package receiver
 import (
 	"context"
 	"encoding/json"
+	"github.com/pion/transport/v3/xtime"
 	"io"
 	"net/http"
 	"time"
@@ -21,7 +22,8 @@ type Receiver struct {
 
 	registry *interceptor.Registry
 
-	log logging.LeveledLogger
+	log         logging.LeveledLogger
+	timeManager xtime.TimeManager
 }
 
 func NewReceiver(opts ...Option) (*Receiver, error) {
@@ -31,6 +33,7 @@ func NewReceiver(opts ...Option) (*Receiver, error) {
 		peerConnection: &webrtc.PeerConnection{},
 		registry:       &interceptor.Registry{},
 		log:            logging.NewDefaultLoggerFactory().NewLogger("receiver"),
+		timeManager:    xtime.StdTimeManager{},
 	}
 	if err := r.mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -106,30 +109,31 @@ func (r *Receiver) onTrack(trackRemote *webrtc.TrackRemote, rtpReceiver *webrtc.
 
 	go func(ctx context.Context) {
 		bytesReceived := 0
-		ticker := time.NewTicker(time.Second)
-		last := time.Now()
+		ticker := r.timeManager.NewTicker(time.Second)
+		last := r.timeManager.Now()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case now := <-ticker.C:
-				delta := now.Sub(last)
+			case now := <-ticker.C():
+				delta := now.Time().Sub(last)
 				bits := float64(bytesReceived) * 8.0
 				rate := bits / delta.Seconds()
 				mBitPerSecond := rate / float64(vnet.MBit)
 				r.log.Infof("throughput: %.2f Mb/s\n", mBitPerSecond)
 				bytesReceived = 0
-				last = now
+				last = now.Time()
+				now.Done()
 			case newBytesReceived := <-bytesReceivedChan:
 				bytesReceived += newBytesReceived
 			}
 		}
 	}(ctx)
 	for {
-		if err := rtpReceiver.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		if err := rtpReceiver.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
 			r.log.Infof("failed to SetReadDeadline for rtpReceiver: %v", err)
 		}
-		if err := trackRemote.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		if err := trackRemote.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
 			r.log.Infof("failed to SetReadDeadline for trackRemote: %v", err)
 		}
 

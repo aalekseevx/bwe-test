@@ -1,6 +1,7 @@
 package syncodec
 
 import (
+	"github.com/pion/transport/v3/xtime"
 	"time"
 )
 
@@ -12,16 +13,25 @@ type PerfectCodec struct {
 	targetBitrateBps int
 	fps              int
 
-	done chan struct{}
+	done        chan struct{}
+	timeManager xtime.TimeManager
 }
 
-func NewPerfectCodec(writer FrameWriter, targetBitrateBps int) *PerfectCodec {
-	return &PerfectCodec{
+type PerfectCodecOption func(*PerfectCodec)
+
+func NewPerfectCodec(writer FrameWriter, targetBitrateBps int, options ...PerfectCodecOption) *PerfectCodec {
+	c := &PerfectCodec{
 		writer:           writer,
 		targetBitrateBps: targetBitrateBps,
 		fps:              30,
 		done:             make(chan struct{}),
+		timeManager:      xtime.StdTimeManager{},
 	}
+
+	for _, o := range options {
+		o(c)
+	}
+	return c
 }
 
 // GetTargetBitrate returns the current target bitrate in bit per second.
@@ -36,14 +46,15 @@ func (c *PerfectCodec) SetTargetBitrate(r int) {
 
 func (c *PerfectCodec) Start() {
 	msToNextFrame := time.Duration((1.0/float64(c.fps))*1000.0) * time.Millisecond
-	ticker := time.NewTicker(msToNextFrame)
+	ticker := c.timeManager.NewTicker(msToNextFrame)
 	for {
 		select {
-		case <-ticker.C:
+		case now := <-ticker.C():
 			c.writer.WriteFrame(Frame{
 				Content:  make([]byte, c.targetBitrateBps/(8.0*c.fps)),
 				Duration: msToNextFrame,
 			})
+			now.Done()
 		case <-c.done:
 			return
 		}

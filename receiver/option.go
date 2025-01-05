@@ -4,17 +4,22 @@ import (
 	"io"
 	"time"
 
-	"github.com/pion/bwe-test/logging"
+	"github.com/pion/transport/v3/xtime"
+
 	"github.com/pion/interceptor/pkg/packetdump"
-	"github.com/pion/transport/v3/vnet"
 	"github.com/pion/webrtc/v4"
+
+	"github.com/pion/bwe-test/logging"
+	"github.com/pion/transport/v3/vnet"
 )
 
 type Option func(*Receiver) error
 
-func PacketLogWriter(rtpWriter, rtcpWriter io.Writer) Option {
+func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.TimeManager) Option {
 	return func(r *Receiver) error {
-		formatter := logging.RTPFormatter{}
+		formatter := logging.RTPFormatter{
+			TimeManager: tm,
+		}
 		rtpLogger, err := packetdump.NewReceiverInterceptor(
 			packetdump.RTPFormatter(formatter.RTPFormat),
 			packetdump.RTPWriter(rtpWriter),
@@ -22,8 +27,11 @@ func PacketLogWriter(rtpWriter, rtcpWriter io.Writer) Option {
 		if err != nil {
 			return err
 		}
+		rtcpFormatter := logging.RTCPFormatter{
+			TimeManager: tm,
+		}
 		rtcpLogger, err := packetdump.NewSenderInterceptor(
-			packetdump.RTCPFormatter(logging.RTCPFormat),
+			packetdump.RTCPFormatter(rtcpFormatter.RTCPFormat),
 			packetdump.RTCPWriter(rtcpWriter),
 		)
 		if err != nil {
@@ -46,6 +54,13 @@ func SetVnet(v *vnet.Net, publicIPs []string) Option {
 		r.settingEngine.SetNet(v)
 		r.settingEngine.SetICETimeouts(time.Second, time.Second, 200*time.Millisecond)
 		r.settingEngine.SetNAT1To1IPs(publicIPs, webrtc.ICECandidateTypeHost)
+		return nil
+	}
+}
+
+func SetTimeManager(tm xtime.TimeManager) Option {
+	return func(r *Receiver) error {
+		r.timeManager = tm
 		return nil
 	}
 }

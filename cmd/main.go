@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/pion/transport/v3/xtime"
 	"io"
 	"log"
 	"net/http"
@@ -25,21 +26,24 @@ func realMain() error {
 	ccLogFile := flag.String("cc-log", "", "log congestion control target bitrate")
 	flag.Parse()
 
+	tm := xtime.StdTimeManager{}
+
 	if *mode == "receiver" {
-		return receive(*addr, *rtpLogFile, *rtcpLogFile)
+		return receive(*addr, *rtpLogFile, *rtcpLogFile, tm)
 	}
 	if *mode == "sender" {
-		return send(*addr, *rtpLogFile, *rtcpLogFile, *ccLogFile)
+		return send(*addr, *rtpLogFile, *rtcpLogFile, *ccLogFile, tm)
 	}
 
 	log.Fatalf("invalid mode: %s\n", *mode)
 	return nil
 }
 
-func receive(addr, rtpLogFile, rtcpLogFile string) error {
+func receive(addr, rtpLogFile, rtcpLogFile string, tm xtime.TimeManager) error {
 	options := []receiver.Option{
-		receiver.PacketLogWriter(os.Stdout, os.Stdout),
+		receiver.PacketLogWriter(os.Stdout, os.Stdout, tm),
 		receiver.DefaultInterceptors(),
+		receiver.SetTimeManager(tm),
 	}
 	var rtpLogger io.WriteCloser
 	var rtcpLogger io.WriteCloser
@@ -59,7 +63,7 @@ func receive(addr, rtpLogFile, rtcpLogFile string) error {
 		defer rtcpLogger.Close()
 	}
 	if rtpLogger != nil || rtcpLogger != nil {
-		options = append(options, receiver.PacketLogWriter(rtpLogger, rtcpLogger))
+		options = append(options, receiver.PacketLogWriter(rtpLogger, rtcpLogger, tm))
 	}
 	r, err := receiver.NewReceiver(options...)
 	if err != nil {
@@ -74,10 +78,11 @@ func receive(addr, rtpLogFile, rtcpLogFile string) error {
 	return nil
 }
 
-func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string) error {
+func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string, tm xtime.TimeManager) error {
 	options := []sender.Option{
 		sender.DefaultInterceptors(),
 		sender.GCC(initialBitrate),
+		sender.SetTimeManager(tm),
 	}
 	var rtpLogger io.WriteCloser
 	var rtcpLogger io.WriteCloser
@@ -106,7 +111,7 @@ func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string) error {
 		options = append(options, sender.CCLogWriter(ccLogger))
 	}
 	if rtpLogger != nil || rtcpLogger != nil {
-		options = append(options, sender.PacketLogWriter(rtpLogger, rtcpLogger))
+		options = append(options, sender.PacketLogWriter(rtpLogger, rtcpLogger, tm))
 	}
 	s, err := sender.NewSender(
 		sender.NewStatisticalEncoderSource(),

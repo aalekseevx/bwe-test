@@ -7,12 +7,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/transport/v3/vtime"
+	"github.com/pion/transport/v3/xtime"
+
 	"github.com/pion/bwe-test/logging"
 	"github.com/pion/bwe-test/sender"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/pion/bwe-test/receiver"
 	"github.com/pion/transport/v3/vnet"
-	"github.com/stretchr/testify/assert"
 )
 
 type senderMode int
@@ -32,13 +36,15 @@ func TestVnetRunnerABR(t *testing.T) {
 
 func VnetRunner(t *testing.T, mode senderMode) {
 	t.Run("VariableAvailableCapacitySingleFlow", func(t *testing.T) {
+		tm := vtime.NewSimulator(time.Time{})
+
 		nm, err := NewManager()
 		assert.NoError(t, err)
 
 		err = os.MkdirAll(fmt.Sprintf("data/%v", t.Name()), os.ModePerm)
 		assert.NoError(t, err)
 
-		s, r, teardown := setupSimpleFlow(t, nm, mode, 0)
+		s, r, teardown := setupSimpleFlow(t, nm, tm, mode, 0)
 		defer teardown()
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -77,10 +83,12 @@ func VnetRunner(t *testing.T, mode senderMode) {
 				},
 			},
 		}
-		runNetworkSimulation(t, c, nm)
+		runNetworkSimulation(t, c, nm, tm)
 	})
 
 	t.Run("VariableAvailableCapacityMultipleFlows", func(t *testing.T) {
+		tm := vtime.NewSimulator(time.Time{})
+
 		nm, err := NewManager()
 		assert.NoError(t, err)
 
@@ -88,7 +96,7 @@ func VnetRunner(t *testing.T, mode senderMode) {
 		assert.NoError(t, err)
 
 		for i := 0; i < 2; i++ {
-			s, r, teardown := setupSimpleFlow(t, nm, mode, i)
+			s, r, teardown := setupSimpleFlow(t, nm, tm, mode, i)
 			defer teardown()
 
 			ctx, cancel := context.WithCancel(context.Background())
@@ -135,7 +143,7 @@ func VnetRunner(t *testing.T, mode senderMode) {
 				},
 			},
 		}
-		runNetworkSimulation(t, c, nm)
+		runNetworkSimulation(t, c, nm, tm)
 	})
 }
 
@@ -150,18 +158,18 @@ type phase struct {
 	maxBurst      int
 }
 
-func runNetworkSimulation(t *testing.T, c pathCharacteristics, nm *NetworkManager) {
+func runNetworkSimulation(t *testing.T, c pathCharacteristics, nm *NetworkManager, tm xtime.TimeManager) {
 	for _, phase := range c.phases {
 		t.Logf("enter next phase: %v\n", phase)
 		nm.SetCapacity(
 			int(float64(c.referenceCapacity)*phase.capacityRatio),
 			phase.maxBurst,
 		)
-		time.Sleep(phase.duration)
+		tm.Sleep(phase.duration)
 	}
 }
 
-func setupSimpleFlow(t *testing.T, nm *NetworkManager, mode senderMode, id int) (*sender.Sender, *receiver.Receiver, func()) {
+func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.TimeManager, mode senderMode, id int) (*sender.Sender, *receiver.Receiver, func()) {
 	leftVnet, publicIPLeft, err := nm.GetLeftNet()
 	assert.NoError(t, err)
 	rightVnet, publicIPRight, err := nm.GetRightNet()
@@ -180,18 +188,20 @@ func setupSimpleFlow(t *testing.T, nm *NetworkManager, mode senderMode, id int) 
 		s, err = sender.NewSender(
 			sender.NewStatisticalEncoderSource(),
 			sender.SetVnet(leftVnet, []string{publicIPLeft}),
-			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger),
+			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger, tm),
 			sender.GCC(100_000),
 			sender.CCLogWriter(ccLogger),
+			sender.SetTimeManager(tm),
 		)
 		assert.NoError(t, err)
 	case simulcastSenderMode:
 		s, err = sender.NewSender(
-			sender.NewSimulcastFilesSource(),
+			sender.NewSimulcastFilesSource(tm),
 			sender.SetVnet(leftVnet, []string{publicIPLeft}),
-			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger),
+			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger, tm),
 			sender.GCC(100_000),
 			sender.CCLogWriter(ccLogger),
+			sender.SetTimeManager(tm),
 		)
 		assert.NoError(t, err)
 	default:
@@ -205,8 +215,9 @@ func setupSimpleFlow(t *testing.T, nm *NetworkManager, mode senderMode, id int) 
 
 	r, err := receiver.NewReceiver(
 		receiver.SetVnet(rightVnet, []string{publicIPRight}),
-		receiver.PacketLogWriter(receiverRTPLogger, receiverRTCPLogger),
+		receiver.PacketLogWriter(receiverRTPLogger, receiverRTCPLogger, tm),
 		receiver.DefaultInterceptors(),
+		receiver.SetTimeManager(tm),
 	)
 	assert.NoError(t, err)
 
