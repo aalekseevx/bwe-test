@@ -9,14 +9,16 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/pion/transport/v3/stdtime"
 	"github.com/pion/transport/v3/xtime"
+
+	"github.com/pion/logging"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/pion/interceptor"
 	"github.com/pion/interceptor/pkg/cc"
-	"github.com/pion/logging"
 	"github.com/pion/webrtc/v4"
 	"github.com/pion/webrtc/v4/pkg/media"
-	"golang.org/x/sync/errgroup"
 )
 
 type MediaSource interface {
@@ -29,8 +31,9 @@ type Sender struct {
 	settingEngine *webrtc.SettingEngine
 	mediaEngine   *webrtc.MediaEngine
 
-	peerConnection *webrtc.PeerConnection
-	videoTrack     *webrtc.TrackLocalStaticSample
+	peerConnection          *webrtc.PeerConnection
+	peerConnectionConnected chan struct{}
+	videoTrack              *webrtc.TrackLocalStaticSample
 
 	source        MediaSource
 	estimator     cc.BandwidthEstimator
@@ -41,22 +44,23 @@ type Sender struct {
 	ccLogWriter io.Writer
 
 	log         logging.LeveledLogger
-	timeManager xtime.TimeManager
+	timeManager xtime.Manager
 }
 
 func NewSender(source MediaSource, opts ...Option) (*Sender, error) {
 	sender := &Sender{
-		settingEngine:  &webrtc.SettingEngine{},
-		mediaEngine:    &webrtc.MediaEngine{},
-		peerConnection: nil,
-		videoTrack:     nil,
-		source:         source,
-		estimator:      nil,
-		estimatorChan:  make(chan cc.BandwidthEstimator),
-		registry:       &interceptor.Registry{},
-		ccLogWriter:    io.Discard,
-		log:            logging.NewDefaultLoggerFactory().NewLogger("sender"),
-		timeManager:    xtime.StdTimeManager{},
+		settingEngine:           &webrtc.SettingEngine{},
+		mediaEngine:             &webrtc.MediaEngine{},
+		peerConnection:          nil,
+		peerConnectionConnected: make(chan struct{}),
+		videoTrack:              nil,
+		source:                  source,
+		estimator:               nil,
+		estimatorChan:           make(chan cc.BandwidthEstimator),
+		registry:                &interceptor.Registry{},
+		ccLogWriter:             io.Discard,
+		log:                     logging.NewDefaultLoggerFactory().NewLogger("sender"),
+		timeManager:             stdtime.Manager{},
 	}
 	if err := sender.mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -114,6 +118,9 @@ func (s *Sender) SetupPeerConnection() error {
 	// Set the handler for Peer connection state
 	// This will notify you when the peer has connected/disconnected
 	s.peerConnection.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		if state == webrtc.PeerConnectionStateConnected {
+			close(s.peerConnectionConnected)
+		}
 		s.log.Infof("Sender Peer Connection State has changed: %s\n", state.String())
 	})
 	peerConnection.OnICECandidate(func(i *webrtc.ICECandidate) {
@@ -148,6 +155,10 @@ func (s *Sender) CreateOffer() (*webrtc.SessionDescription, error) {
 func (s *Sender) AcceptAnswer(answer *webrtc.SessionDescription) error {
 	// Sets the LocalDescription, and starts our UDP listeners
 	return s.peerConnection.SetRemoteDescription(*answer)
+}
+
+func (s *Sender) WaitConnected() {
+	<-s.peerConnectionConnected
 }
 
 func (s *Sender) Start(ctx context.Context) error {

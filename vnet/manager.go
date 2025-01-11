@@ -5,7 +5,9 @@ import (
 	"strings"
 
 	"github.com/pion/logging"
+
 	"github.com/pion/transport/v3/vnet"
+	"github.com/pion/transport/v3/xtime"
 )
 
 type RouterWithConfig struct {
@@ -36,6 +38,7 @@ type NetworkManager struct {
 	leftTBF     *vnet.TokenBucketFilter
 	rightRouter *RouterWithConfig
 	rightTBF    *vnet.TokenBucketFilter
+	timeManager xtime.Manager
 }
 
 const (
@@ -43,11 +46,11 @@ const (
 	initMaxBurst = 80 * vnet.KBit
 )
 
-func NewManager() (*NetworkManager, error) {
+func NewManager(tm xtime.Manager) (*NetworkManager, error) {
 	wan, err := vnet.NewRouter(&vnet.RouterConfig{
 		CIDR:          "0.0.0.0/0",
 		LoggerFactory: logging.NewDefaultLoggerFactory(),
-	})
+	}, vnet.RouterWithTimeManager(tm))
 	if err != nil {
 		return nil, err
 	}
@@ -62,20 +65,21 @@ func NewManager() (*NetworkManager, error) {
 			Mode: vnet.NATModeNAT1To1,
 		},
 	}
-	leftRouter, err := vnet.NewRouter(leftRouterConfig)
+	leftRouter, err := vnet.NewRouter(leftRouterConfig, vnet.RouterWithTimeManager(tm))
 	if err != nil {
 		return nil, err
 	}
 
-	leftTBF, err := vnet.NewTokenBucketFilter(
-		leftRouter,
-		vnet.TBFRate(initCapacity),
-		vnet.TBFMaxBurst(initMaxBurst),
-	)
-	if err != nil {
-		return nil, err
-	}
-	err = wan.AddNet(leftTBF)
+	//leftTBF, err := vnet.NewTokenBucketFilter(
+	//	leftRouter,
+	//	vnet.TBFRate(initCapacity),
+	//	vnet.TBFMaxBurst(initMaxBurst),
+	//	vnet.TBFTimeManager(tm),
+	//)
+	//if err != nil {
+	//	return nil, err
+	//}
+	err = wan.AddNet(leftRouter)
 	if err != nil {
 		return nil, err
 	}
@@ -94,15 +98,20 @@ func NewManager() (*NetworkManager, error) {
 			Mode: vnet.NATModeNAT1To1,
 		},
 	}
-	rightRouter, err := vnet.NewRouter(rightRouterConfig)
+	rightRouter, err := vnet.NewRouter(rightRouterConfig, vnet.RouterWithTimeManager(tm))
 	if err != nil {
 		return nil, err
 	}
-	rightTBF, err := vnet.NewTokenBucketFilter(rightRouter, vnet.TBFRate(initCapacity), vnet.TBFMaxBurst(initMaxBurst))
-	if err != nil {
-		return nil, err
-	}
-	err = wan.AddNet(rightTBF)
+	//rightTBF, err := vnet.NewTokenBucketFilter(
+	//	rightRouter,
+	//	vnet.TBFRate(initCapacity),
+	//	vnet.TBFMaxBurst(initMaxBurst),
+	//	vnet.TBFTimeManager(tm),
+	//)
+	//if err != nil {
+	//	return nil, err
+	//}
+	err = wan.AddNet(rightRouter)
 	if err != nil {
 		return nil, err
 	}
@@ -116,12 +125,13 @@ func NewManager() (*NetworkManager, error) {
 			Router:       leftRouter,
 			RouterConfig: leftRouterConfig,
 		},
-		leftTBF: leftTBF,
+		//leftTBF: leftTBF,
 		rightRouter: &RouterWithConfig{
 			Router:       rightRouter,
 			RouterConfig: rightRouterConfig,
 		},
-		rightTBF: rightTBF,
+		//rightTBF:    rightTBF,
+		timeManager: tm,
 	}
 
 	if err := wan.Start(); err != nil {
@@ -140,7 +150,7 @@ func (m *NetworkManager) GetLeftNet() (*vnet.Net, string, error) {
 	net, err := vnet.NewNet(&vnet.NetConfig{
 		StaticIPs: []string{privateIP},
 		StaticIP:  "",
-	})
+	}, vnet.NetWithTimeManager(m.timeManager))
 	if err != nil {
 		return nil, "", err
 	}
@@ -161,7 +171,7 @@ func (m *NetworkManager) GetRightNet() (*vnet.Net, string, error) {
 	net, err := vnet.NewNet(&vnet.NetConfig{
 		StaticIPs: []string{privateIP},
 		StaticIP:  "",
-	})
+	}, vnet.NetWithTimeManager(m.timeManager))
 	if err != nil {
 		return nil, "", err
 	}
@@ -174,6 +184,6 @@ func (m *NetworkManager) GetRightNet() (*vnet.Net, string, error) {
 }
 
 func (m *NetworkManager) SetCapacity(capacity, maxBurst int) {
-	m.leftTBF.Set(vnet.TBFRate(capacity), vnet.TBFMaxBurst(maxBurst))
-	m.rightTBF.Set(vnet.TBFRate(capacity), vnet.TBFMaxBurst(maxBurst))
+	//m.leftTBF.Set(vnet.TBFRate(capacity), vnet.TBFMaxBurst(maxBurst))
+	//m.rightTBF.Set(vnet.TBFRate(capacity), vnet.TBFMaxBurst(maxBurst))
 }

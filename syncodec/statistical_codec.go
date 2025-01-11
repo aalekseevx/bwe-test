@@ -1,11 +1,13 @@
 package syncodec
 
 import (
-	"github.com/pion/transport/v3/xtime"
 	"math"
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/pion/transport/v3/stdtime"
+	"github.com/pion/transport/v3/xtime"
 )
 
 func init() {
@@ -105,7 +107,7 @@ type StatisticalCodec struct {
 
 	done chan struct{}
 
-	timeManager xtime.TimeManager
+	timeManager xtime.Manager
 }
 
 type StatisticalCodecOption func(*StatisticalCodec) error
@@ -138,7 +140,7 @@ func WithScaleT(scale float64) StatisticalCodecOption {
 	}
 }
 
-func WithTimeManager(tm xtime.TimeManager) StatisticalCodecOption {
+func WithTimeManager(tm xtime.Manager) StatisticalCodecOption {
 	return func(sc *StatisticalCodec) error {
 		sc.timeManager = tm
 		return nil
@@ -180,7 +182,7 @@ func NewStatisticalEncoder(w FrameWriter, opts ...StatisticalCodecOption) (*Stat
 		frameSizeNoiser:         nil,
 		frameDurationNoiser:     nil,
 		done:                    make(chan struct{}),
-		timeManager:             xtime.StdTimeManager{},
+		timeManager:             stdtime.Manager{},
 	}
 
 	for _, opt := range opts {

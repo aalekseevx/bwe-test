@@ -3,15 +3,20 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/pion/transport/v3/xtime"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
+
+	"github.com/pion/transport/v3/stdtime"
+	"github.com/pion/transport/v3/xtime"
 
 	"github.com/pion/bwe-test/logging"
+	_ "github.com/pion/bwe-test/notime"
 	"github.com/pion/bwe-test/receiver"
 	"github.com/pion/bwe-test/sender"
 )
@@ -26,7 +31,7 @@ func realMain() error {
 	ccLogFile := flag.String("cc-log", "", "log congestion control target bitrate")
 	flag.Parse()
 
-	tm := xtime.StdTimeManager{}
+	tm := stdtime.Manager{}
 
 	if *mode == "receiver" {
 		return receive(*addr, *rtpLogFile, *rtcpLogFile, tm)
@@ -39,7 +44,7 @@ func realMain() error {
 	return nil
 }
 
-func receive(addr, rtpLogFile, rtcpLogFile string, tm xtime.TimeManager) error {
+func receive(addr, rtpLogFile, rtcpLogFile string, tm xtime.Manager) error {
 	options := []receiver.Option{
 		receiver.PacketLogWriter(os.Stdout, os.Stdout, tm),
 		receiver.DefaultInterceptors(),
@@ -78,7 +83,7 @@ func receive(addr, rtpLogFile, rtcpLogFile string, tm xtime.TimeManager) error {
 	return nil
 }
 
-func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string, tm xtime.TimeManager) error {
+func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string, tm xtime.Manager) error {
 	options := []sender.Option{
 		sender.DefaultInterceptors(),
 		sender.GCC(initialBitrate),
@@ -150,6 +155,7 @@ func send(addr, rtpLogFile, rtcpLogFile, ccLogFile string, tm xtime.TimeManager)
 }
 
 func main() {
+	fmt.Println(time.Now())
 	err := realMain()
 	if err != nil {
 		log.Fatal(err)

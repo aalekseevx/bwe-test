@@ -15,7 +15,7 @@ import (
 
 type Option func(*Receiver) error
 
-func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.TimeManager) Option {
+func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.Manager) Option {
 	return func(r *Receiver) error {
 		formatter := logging.RTPFormatter{
 			TimeManager: tm,
@@ -58,7 +58,7 @@ func SetVnet(v *vnet.Net, publicIPs []string) Option {
 	}
 }
 
-func SetTimeManager(tm xtime.TimeManager) Option {
+func SetTimeManager(tm xtime.Manager) Option {
 	return func(r *Receiver) error {
 		r.timeManager = tm
 		return nil

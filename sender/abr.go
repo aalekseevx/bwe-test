@@ -4,9 +4,12 @@ import (
 	"context"
 	"sync"
 
-	"github.com/pion/bwe-test/syncodec"
 	"github.com/pion/logging"
+
 	"github.com/pion/webrtc/v4/pkg/media"
+
+	"github.com/pion/bwe-test/syncodec"
+	"github.com/pion/transport/v3/xtime"
 )
 
 // StatisticalEncoderSource is a source that fakes a media encoder using syncodec.StatisticalCodec
@@ -18,10 +21,11 @@ type StatisticalEncoderSource struct {
 	done                chan struct{}
 	wg                  sync.WaitGroup
 	log                 logging.LeveledLogger
+	timeManager         xtime.Manager
 }
 
 // NewStatisticalEncoderSource returns a new StatisticalEncoderSource
-func NewStatisticalEncoderSource() *StatisticalEncoderSource {
+func NewStatisticalEncoderSource(tm xtime.Manager) *StatisticalEncoderSource {
 	return &StatisticalEncoderSource{
 		codec: nil,
 		sampleWriter: func(_ media.Sample) error {
@@ -32,6 +36,7 @@ func NewStatisticalEncoderSource() *StatisticalEncoderSource {
 		done:                make(chan struct{}),
 		wg:                  sync.WaitGroup{},
 		log:                 logging.NewDefaultLoggerFactory().NewLogger("statistical_encoder_source"),
+		timeManager:         tm,
 	}
 }
 
@@ -47,7 +52,7 @@ func (s *StatisticalEncoderSource) Start(ctx context.Context) error {
 	s.wg.Add(1)
 	defer s.wg.Done()
 
-	codec, err := syncodec.NewStatisticalEncoder(s)
+	codec, err := syncodec.NewStatisticalEncoder(s, syncodec.WithTimeManager(s.timeManager))
 	if err != nil {
 		return err
 	}

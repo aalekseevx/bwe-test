@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pion/transport/v3/stdtime"
 	"github.com/pion/transport/v3/vtime"
 	"github.com/pion/transport/v3/xtime"
 
@@ -34,11 +35,18 @@ func TestVnetRunnerABR(t *testing.T) {
 	VnetRunner(t, abrSenderMode)
 }
 
+const useVTime = true
+
 func VnetRunner(t *testing.T, mode senderMode) {
 	t.Run("VariableAvailableCapacitySingleFlow", func(t *testing.T) {
-		tm := vtime.NewSimulator(time.Time{})
+		var tm xtime.Manager
+		if useVTime {
+			tm = vtime.NewSimulator(time.Unix(0, 0))
+		} else {
+			tm = stdtime.Manager{}
+		}
 
-		nm, err := NewManager()
+		nm, err := NewManager(tm)
 		assert.NoError(t, err)
 
 		err = os.MkdirAll(fmt.Sprintf("data/%v", t.Name()), os.ModePerm)
@@ -46,6 +54,13 @@ func VnetRunner(t *testing.T, mode senderMode) {
 
 		s, r, teardown := setupSimpleFlow(t, nm, tm, mode, 0)
 		defer teardown()
+
+		//time.Sleep(time.Second)
+
+		if vtm, ok := tm.(*vtime.Simulator); ok {
+			vtm.Start()
+			defer vtm.Stop()
+		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -87,9 +102,14 @@ func VnetRunner(t *testing.T, mode senderMode) {
 	})
 
 	t.Run("VariableAvailableCapacityMultipleFlows", func(t *testing.T) {
-		tm := vtime.NewSimulator(time.Time{})
+		var tm xtime.Manager
+		if useVTime {
+			tm = vtime.NewSimulator(time.Unix(0, 0))
+		} else {
+			tm = stdtime.Manager{}
+		}
 
-		nm, err := NewManager()
+		nm, err := NewManager(tm)
 		assert.NoError(t, err)
 
 		err = os.MkdirAll(fmt.Sprintf("data/%v", t.Name()), os.ModePerm)
@@ -110,6 +130,11 @@ func VnetRunner(t *testing.T, mode senderMode) {
 				err = r.Close()
 				assert.NoError(t, err)
 			}()
+		}
+
+		if vtm, ok := tm.(*vtime.Simulator); ok {
+			vtm.Start()
+			defer vtm.Stop()
 		}
 
 		c := pathCharacteristics{
@@ -158,18 +183,23 @@ type phase struct {
 	maxBurst      int
 }
 
-func runNetworkSimulation(t *testing.T, c pathCharacteristics, nm *NetworkManager, tm xtime.TimeManager) {
+func runNetworkSimulation(t *testing.T, c pathCharacteristics, nm *NetworkManager, tm xtime.Manager) {
+	done := func() {}
 	for _, phase := range c.phases {
 		t.Logf("enter next phase: %v\n", phase)
 		nm.SetCapacity(
 			int(float64(c.referenceCapacity)*phase.capacityRatio),
 			phase.maxBurst,
 		)
-		tm.Sleep(phase.duration)
+		done()
+		phaseChange := <-tm.NewTimer(phase.duration, true).C()
+		done = func() {
+			phaseChange.Done()
+		}
 	}
 }
 
-func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.TimeManager, mode senderMode, id int) (*sender.Sender, *receiver.Receiver, func()) {
+func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.Manager, mode senderMode, id int) (*sender.Sender, *receiver.Receiver, func()) {
 	leftVnet, publicIPLeft, err := nm.GetLeftNet()
 	assert.NoError(t, err)
 	rightVnet, publicIPRight, err := nm.GetRightNet()
@@ -186,10 +216,10 @@ func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.TimeManager, mod
 	switch mode {
 	case abrSenderMode:
 		s, err = sender.NewSender(
-			sender.NewStatisticalEncoderSource(),
+			sender.NewStatisticalEncoderSource(tm),
 			sender.SetVnet(leftVnet, []string{publicIPLeft}),
 			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger, tm),
-			sender.GCC(100_000),
+			sender.GCC(100_000, tm),
 			sender.CCLogWriter(ccLogger),
 			sender.SetTimeManager(tm),
 		)
@@ -199,7 +229,7 @@ func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.TimeManager, mod
 			sender.NewSimulcastFilesSource(tm),
 			sender.SetVnet(leftVnet, []string{publicIPLeft}),
 			sender.PacketLogWriter(senderRTPLogger, senderRTCPLogger, tm),
-			sender.GCC(100_000),
+			sender.GCC(100_000, tm),
 			sender.CCLogWriter(ccLogger),
 			sender.SetTimeManager(tm),
 		)
@@ -235,6 +265,9 @@ func setupSimpleFlow(t *testing.T, nm *NetworkManager, tm xtime.TimeManager, mod
 
 	err = s.AcceptAnswer(answer)
 	assert.NoError(t, err)
+
+	s.WaitConnected()
+	r.WaitConnected()
 
 	return s, r, func() {
 		assert.NoError(t, senderRTPLogger.Close())

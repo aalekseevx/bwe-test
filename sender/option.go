@@ -1,21 +1,23 @@
 package sender
 
 import (
-	"github.com/pion/transport/v3/xtime"
 	"io"
 	"time"
+
+	"github.com/pion/transport/v3/xtime"
+
+	"github.com/pion/webrtc/v4"
 
 	"github.com/pion/bwe-test/logging"
 	"github.com/pion/interceptor/pkg/cc"
 	"github.com/pion/interceptor/pkg/gcc"
 	"github.com/pion/interceptor/pkg/packetdump"
 	"github.com/pion/transport/v3/vnet"
-	"github.com/pion/webrtc/v4"
 )
 
 type Option func(*Sender) error
 
-func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.TimeManager) Option {
+func PacketLogWriter(rtpWriter, rtcpWriter io.Writer, tm xtime.Manager) Option {
 	return func(s *Sender) error {
 		formatter := logging.RTPFormatter{
 			TimeManager: tm,
@@ -56,10 +58,13 @@ func CCLogWriter(w io.Writer) Option {
 	}
 }
 
-func GCC(initialBitrate int) Option {
+func GCC(initialBitrate int, tm xtime.Manager) Option {
 	return func(s *Sender) error {
 		controller, err := cc.NewInterceptor(func() (cc.BandwidthEstimator, error) {
-			return gcc.NewSendSideBWE(gcc.SendSideBWEInitialBitrate(initialBitrate))
+			return gcc.NewSendSideBWE(
+				gcc.SendSideBWEInitialBitrate(initialBitrate),
+				gcc.SendSideTimeManager(tm),
+			)
 		})
 		if err != nil {
 			return err
@@ -93,7 +98,7 @@ func SetMediaSource(source MediaSource) Option {
 	}
 }
 
-func SetTimeManager(manager xtime.TimeManager) Option {
+func SetTimeManager(manager xtime.Manager) Option {
 	return func(s *Sender) error {
 		s.timeManager = manager
 		return nil

@@ -2,9 +2,11 @@ package logging
 
 import (
 	"fmt"
-	"github.com/pion/interceptor"
+
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
+
+	"github.com/pion/interceptor"
 	"github.com/pion/transport/v3/xtime"
 )
 
@@ -47,7 +49,7 @@ func (u *unwrapper) unwrap(i uint16) int64 {
 }
 
 type RTPFormatter struct {
-	TimeManager xtime.TimeManager
+	TimeManager xtime.Manager
 	seqnr       unwrapper
 }
 
@@ -76,7 +78,7 @@ func (f *RTPFormatter) RTPFormat(pkt *rtp.Packet, _ interceptor.Attributes) stri
 }
 
 type RTCPFormatter struct {
-	TimeManager xtime.TimeManager
+	TimeManager xtime.Manager
 }
 
 func (f *RTCPFormatter) RTCPFormat(pkts []rtcp.Packet, _ interceptor.Attributes) string {

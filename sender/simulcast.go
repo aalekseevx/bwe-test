@@ -10,6 +10,7 @@ import (
 	"github.com/pion/transport/v3/xtime"
 
 	"github.com/pion/logging"
+
 	"github.com/pion/webrtc/v4/pkg/media"
 	"github.com/pion/webrtc/v4/pkg/media/ivfreader"
 )
@@ -40,7 +41,7 @@ type SimulcastFilesSource struct {
 	done                chan struct{}
 	wg                  sync.WaitGroup
 	log                 logging.LeveledLogger
-	timeManager         xtime.TimeManager
+	timeManager         xtime.Manager
 }
 
 func (s *SimulcastFilesSource) Close() error {
@@ -50,7 +51,7 @@ func (s *SimulcastFilesSource) Close() error {
 }
 
 // NewSimulcastFilesSource returns a new SimulcastFilesSource
-func NewSimulcastFilesSource(tm xtime.TimeManager) *SimulcastFilesSource {
+func NewSimulcastFilesSource(tm xtime.Manager) *SimulcastFilesSource {
 	return &SimulcastFilesSource{
 		qualityLevels: []struct {
 			fileName string

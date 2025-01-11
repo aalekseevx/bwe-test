@@ -3,37 +3,43 @@ package receiver
 import (
 	"context"
 	"encoding/json"
-	"github.com/pion/transport/v3/xtime"
 	"io"
 	"net/http"
 	"time"
 
-	"github.com/pion/interceptor"
+	"github.com/pion/transport/v3/stdtime"
+	"github.com/pion/transport/v3/xtime"
+
 	"github.com/pion/logging"
-	"github.com/pion/transport/v3/vnet"
+
 	"github.com/pion/webrtc/v4"
+
+	"github.com/pion/interceptor"
+	"github.com/pion/transport/v3/vnet"
 )
 
 type Receiver struct {
 	settingEngine *webrtc.SettingEngine
 	mediaEngine   *webrtc.MediaEngine
 
-	peerConnection *webrtc.PeerConnection
+	peerConnection          *webrtc.PeerConnection
+	peerConnectionConnected chan struct{}
 
 	registry *interceptor.Registry
 
 	log         logging.LeveledLogger
-	timeManager xtime.TimeManager
+	timeManager xtime.Manager
 }
 
 func NewReceiver(opts ...Option) (*Receiver, error) {
 	r := &Receiver{
-		settingEngine:  &webrtc.SettingEngine{},
-		mediaEngine:    &webrtc.MediaEngine{},
-		peerConnection: &webrtc.PeerConnection{},
-		registry:       &interceptor.Registry{},
-		log:            logging.NewDefaultLoggerFactory().NewLogger("receiver"),
-		timeManager:    xtime.StdTimeManager{},
+		settingEngine:           &webrtc.SettingEngine{},
+		mediaEngine:             &webrtc.MediaEngine{},
+		peerConnection:          &webrtc.PeerConnection{},
+		peerConnectionConnected: make(chan struct{}),
+		registry:                &interceptor.Registry{},
+		log:                     logging.NewDefaultLoggerFactory().NewLogger("receiver"),
+		timeManager:             stdtime.Manager{},
 	}
 	if err := r.mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return nil, err
@@ -69,6 +75,9 @@ func (r *Receiver) SetupPeerConnection() error {
 	// Set the handler for Peer connection state
 	// This will notify you when the peer has connected/disconnected
 	peerConnection.OnConnectionStateChange(func(s webrtc.PeerConnectionState) {
+		if s == webrtc.PeerConnectionStateConnected {
+			close(r.peerConnectionConnected)
+		}
 		r.log.Infof("Receiver Peer Connection State has changed: %s\n", s.String())
 	})
 
@@ -101,6 +110,10 @@ func (r *Receiver) AcceptOffer(offer *webrtc.SessionDescription) (*webrtc.Sessio
 	return &answer, nil
 }
 
+func (r *Receiver) WaitConnected() {
+	<-r.peerConnectionConnected
+}
+
 func (r *Receiver) onTrack(trackRemote *webrtc.TrackRemote, rtpReceiver *webrtc.RTPReceiver) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -130,11 +143,13 @@ func (r *Receiver) onTrack(trackRemote *webrtc.TrackRemote, rtpReceiver *webrtc.
 		}
 	}(ctx)
 	for {
-		if err := rtpReceiver.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
-			r.log.Infof("failed to SetReadDeadline for rtpReceiver: %v", err)
-		}
-		if err := trackRemote.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
-			r.log.Infof("failed to SetReadDeadline for trackRemote: %v", err)
+		if _, isStd := r.timeManager.(stdtime.Manager); isStd {
+			if err := rtpReceiver.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
+				r.log.Infof("failed to SetReadDeadline for rtpReceiver: %v", err)
+			}
+			if err := trackRemote.SetReadDeadline(r.timeManager.Now().Add(time.Second)); err != nil {
+				r.log.Infof("failed to SetReadDeadline for trackRemote: %v", err)
+			}
 		}
 
 		p, _, err := trackRemote.ReadRTP()

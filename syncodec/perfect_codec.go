@@ -1,8 +1,10 @@
 package syncodec
 
 import (
-	"github.com/pion/transport/v3/xtime"
 	"time"
+
+	"github.com/pion/transport/v3/stdtime"
+	"github.com/pion/transport/v3/xtime"
 )
 
 var _ Codec = (*PerfectCodec)(nil)
@@ -14,7 +16,7 @@ type PerfectCodec struct {
 	fps              int
 
 	done        chan struct{}
-	timeManager xtime.TimeManager
+	timeManager xtime.Manager
 }
 
 type PerfectCodecOption func(*PerfectCodec)
@@ -25,7 +27,7 @@ func NewPerfectCodec(writer FrameWriter, targetBitrateBps int, options ...Perfec
 		targetBitrateBps: targetBitrateBps,
 		fps:              30,
 		done:             make(chan struct{}),
-		timeManager:      xtime.StdTimeManager{},
+		timeManager:      stdtime.Manager{},
 	}
 
 	for _, o := range options {

@@ -1,13 +1,12 @@
 #!/usr/bin/env python
 
 import argparse
+import datetime as dt
 import json
 
-import datetime as dt
 import matplotlib.dates as mdates
 import matplotlib.pyplot as plt
 import pandas as pd
-
 from matplotlib.ticker import EngFormatter, PercentFormatter
 
 
@@ -64,7 +63,7 @@ def read_rtp(file, basetime):
             header=None,
             usecols=[0, 6]
         )
-
+    print("read rtp", file, df.index)
     if not basetime:
         basetime = df.index[0]
 
